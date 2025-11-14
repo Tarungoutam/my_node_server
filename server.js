@@ -1,3 +1,6 @@
+ // restart fix test
+
+
 // =============================
 // FUEL MANAGEMENT BACKEND (MYSQL VERSION)
 // =============================
@@ -9,7 +12,6 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-// EXPRESS
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -18,7 +20,9 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// =============================
 // UPLOAD DIRECTORY
+// =============================
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 app.use('/uploads', express.static(uploadDir));
@@ -33,25 +37,26 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 // =============================
-// MYSQL CONNECTION POOL (ENV VARIABLES)
+// MYSQL CONNECTION (ENV VARIABLES)
 // =============================
-console.log("Connecting to MySQL with:");
-console.log("HOST:", process.env.MYSQLHOST);
-console.log("USER:", process.env.MYSQLUSER);
-console.log("DB:", process.env.MYSQLDATABASE);
-console.log("PORT:", process.env.MYSQLPORT);
-
 const pool = mysql.createPool({
   host: process.env.MYSQLHOST,
   user: process.env.MYSQLUSER,
   password: process.env.MYSQLPASSWORD,
   database: process.env.MYSQLDATABASE,
-  port: Number(process.env.MYSQLPORT),  // IMPORTANT FIX
+  port: process.env.MYSQLPORT,
   connectionLimit: 10
 });
 
 // =============================
-// TEST DB CONNECT
+// ROOT ROUTE (Fix for Cannot GET /)
+// =============================
+app.get("/", (req, res) => {
+  res.send("🚀 Fuel Management API is running successfully!");
+});
+
+// =============================
+// TEST DB
 // =============================
 app.get("/test-db", async (req, res) => {
   try {
@@ -113,7 +118,6 @@ app.get("/create-tables", async (req, res) => {
 
     res.send("🎉 TABLES CREATED SUCCESSFULLY!");
   } catch (err) {
-    console.error(err);
     res.status(500).send("TABLE ERROR: " + err.message);
   }
 });
@@ -184,7 +188,7 @@ app.post('/api/login', async (req, res) => {
 });
 
 // =============================
-// FUEL ENTRY (UPLOAD RECEIPT)
+// FUEL ENTRY (Upload Receipt)
 // =============================
 app.post('/api/fuel-entry', upload.single('receipt'), async (req, res) => {
   try {
