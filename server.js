@@ -1,6 +1,3 @@
- // restart fix test
-
-
 // =============================
 // FUEL MANAGEMENT BACKEND (MYSQL VERSION)
 // =============================
@@ -37,7 +34,7 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 // =============================
-// MYSQL CONNECTION (ENV VARIABLES)
+// MYSQL CONNECTION
 // =============================
 const pool = mysql.createPool({
   host: process.env.MYSQLHOST,
@@ -49,7 +46,33 @@ const pool = mysql.createPool({
 });
 
 // =============================
-// ROOT ROUTE (Fix for Cannot GET /)
+// AUTO FIX FUNCTION
+// =============================
+async function autoFixTables() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS AppUsers (
+        UserID INT AUTO_INCREMENT PRIMARY KEY,
+        Username VARCHAR(100),
+        Email VARCHAR(150),
+        PasswordHash VARCHAR(255),
+        Role VARCHAR(50),
+        IsActive TINYINT DEFAULT 1,
+        CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        LastLogin DATETIME NULL
+      );
+    `);
+    console.log("✔ AppUsers table verified!");
+  } catch (err) {
+    console.error("❌ TABLE FIX ERROR:", err.message);
+  }
+}
+
+// RUN AUTO FIX
+autoFixTables();
+
+// =============================
+// ROOT ROUTE
 // =============================
 app.get("/", (req, res) => {
   res.send("🚀 Fuel Management API is running successfully!");
@@ -68,10 +91,11 @@ app.get("/test-db", async (req, res) => {
 });
 
 // =============================
-// CREATE TABLES (RUN ONLY ONCE)
+// CREATE TABLES
 // =============================
 app.get("/create-tables", async (req, res) => {
   try {
+
     await pool.query(`
       CREATE TABLE IF NOT EXISTS AppUsers (
         UserID INT AUTO_INCREMENT PRIMARY KEY,
@@ -117,8 +141,25 @@ app.get("/create-tables", async (req, res) => {
     `);
 
     res.send("🎉 TABLES CREATED SUCCESSFULLY!");
+
   } catch (err) {
     res.status(500).send("TABLE ERROR: " + err.message);
+  }
+});
+
+// =============================
+// DELETE ALL TABLES
+// =============================
+app.get("/delete-tables", async (req, res) => {
+  try {
+    await pool.query("SET FOREIGN_KEY_CHECKS = 0;");
+    await pool.query("DROP TABLE IF EXISTS FuelReceipts;");
+    await pool.query("DROP TABLE IF EXISTS FuelRequests;");
+    await pool.query("DROP TABLE IF EXISTS AppUsers;");
+    await pool.query("SET FOREIGN_KEY_CHECKS = 1;");
+    res.send("🗑️ All tables deleted successfully!");
+  } catch (err) {
+    res.status(500).send("ERROR deleting tables: " + err.message);
   }
 });
 
@@ -188,10 +229,11 @@ app.post('/api/login', async (req, res) => {
 });
 
 // =============================
-// FUEL ENTRY (Upload Receipt)
+// FUEL ENTRY WITH RECEIPT
 // =============================
 app.post('/api/fuel-entry', upload.single('receipt'), async (req, res) => {
   try {
+
     const { userId, vehicleName, vehicleNumber, odo, liters, rate, total, station, notes } = req.body;
 
     const [result] = await pool.query(`
