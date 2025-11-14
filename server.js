@@ -35,12 +35,18 @@ const upload = multer({ storage });
 // =============================
 // MYSQL CONNECTION POOL (ENV VARIABLES)
 // =============================
+console.log("Connecting to MySQL with:");
+console.log("HOST:", process.env.MYSQLHOST);
+console.log("USER:", process.env.MYSQLUSER);
+console.log("DB:", process.env.MYSQLDATABASE);
+console.log("PORT:", process.env.MYSQLPORT);
+
 const pool = mysql.createPool({
   host: process.env.MYSQLHOST,
   user: process.env.MYSQLUSER,
   password: process.env.MYSQLPASSWORD,
   database: process.env.MYSQLDATABASE,
-  port: process.env.MYSQLPORT,
+  port: Number(process.env.MYSQLPORT),  // IMPORTANT FIX
   connectionLimit: 10
 });
 
