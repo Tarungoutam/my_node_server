@@ -33,14 +33,14 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 // =============================
-// MYSQL CONNECTION POOL (PUBLIC NETWORK)
+// MYSQL CONNECTION POOL (ENV VARIABLES)
 // =============================
 const pool = mysql.createPool({
-  host: "centerbeam.proxy.rlwy.net",
-  user: "root",
-  password: "lzINABxtlXNVplDkAGPtrIpRgEoPyoet",
-  database: "railway",
-  port: 30974,
+  host: process.env.MYSQLHOST,
+  user: process.env.MYSQLUSER,
+  password: process.env.MYSQLPASSWORD,
+  database: process.env.MYSQLDATABASE,
+  port: process.env.MYSQLPORT,
   connectionLimit: 10
 });
 
