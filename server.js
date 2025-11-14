@@ -33,15 +33,14 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 // =============================
-// MYSQL CONNECTION POOL
+// MYSQL CONNECTION POOL (PUBLIC NETWORK)
 // =============================
-
 const pool = mysql.createPool({
-  host: "mysql.railway.internal",
+  host: "centerbeam.proxy.rlwy.net",
   user: "root",
   password: "lzINABxtlXNVplDkAGPtrIpRgEoPyoet",
   database: "railway",
-  port: 3306,
+  port: 30974,
   connectionLimit: 10
 });
 
@@ -133,9 +132,8 @@ app.post('/api/register', async (req, res) => {
 
     const hash = await bcrypt.hash(password, 10);
 
-    await pool.query(`
-      INSERT INTO AppUsers (Username, Email, PasswordHash, Role)
-      VALUES (?, ?, ?, ?)`,
+    await pool.query(
+      "INSERT INTO AppUsers (Username, Email, PasswordHash, Role) VALUES (?, ?, ?, ?)",
       [username, email, hash, role]
     );
 
