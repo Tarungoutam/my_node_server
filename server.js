@@ -46,121 +46,10 @@ const pool = mysql.createPool({
 });
 
 // =============================
-// AUTO FIX FUNCTION
-// =============================
-async function autoFixTables() {
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS AppUsers (
-        UserID INT AUTO_INCREMENT PRIMARY KEY,
-        Username VARCHAR(100),
-        Email VARCHAR(150),
-        PasswordHash VARCHAR(255),
-        Role VARCHAR(50),
-        IsActive TINYINT DEFAULT 1,
-        CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-        LastLogin DATETIME NULL
-      );
-    `);
-    console.log("✔ AppUsers table verified!");
-  } catch (err) {
-    console.error("❌ TABLE FIX ERROR:", err.message);
-  }
-}
-
-// RUN AUTO FIX
-autoFixTables();
-
-// =============================
 // ROOT ROUTE
 // =============================
 app.get("/", (req, res) => {
-  res.send("🚀 Fuel Management API is running successfully!");
-});
-
-// =============================
-// TEST DB
-// =============================
-app.get("/test-db", async (req, res) => {
-  try {
-    const [rows] = await pool.query("SELECT 1");
-    res.send("MYSQL CONNECTED SUCCESSFULLY!");
-  } catch (err) {
-    res.status(500).send("DB ERROR: " + err.message);
-  }
-});
-
-// =============================
-// CREATE TABLES
-// =============================
-app.get("/create-tables", async (req, res) => {
-  try {
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS AppUsers (
-        UserID INT AUTO_INCREMENT PRIMARY KEY,
-        Username VARCHAR(100),
-        Email VARCHAR(150),
-        PasswordHash VARCHAR(255),
-        Role VARCHAR(50),
-        IsActive TINYINT DEFAULT 1,
-        CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-        LastLogin DATETIME NULL
-      );
-    `);
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS FuelRequests (
-        RequestID INT AUTO_INCREMENT PRIMARY KEY,
-        UserID INT NOT NULL,
-        VehicleName VARCHAR(150),
-        VehicleNumber VARCHAR(100),
-        Odo VARCHAR(50),
-        Liters DECIMAL(10,2),
-        Rate DECIMAL(10,2),
-        Total DECIMAL(10,2),
-        Station VARCHAR(150),
-        Notes VARCHAR(255),
-        Status VARCHAR(50) DEFAULT 'Pending',
-        CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (UserID) REFERENCES AppUsers(UserID)
-      );
-    `);
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS FuelReceipts (
-        ReceiptID INT AUTO_INCREMENT PRIMARY KEY,
-        RequestID INT NOT NULL,
-        UserID INT NOT NULL,
-        FilePath VARCHAR(255),
-        FileType VARCHAR(50),
-        UploadDate DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (RequestID) REFERENCES FuelRequests(RequestID),
-        FOREIGN KEY (UserID) REFERENCES AppUsers(UserID)
-      );
-    `);
-
-    res.send("🎉 TABLES CREATED SUCCESSFULLY!");
-
-  } catch (err) {
-    res.status(500).send("TABLE ERROR: " + err.message);
-  }
-});
-
-// =============================
-// DELETE ALL TABLES
-// =============================
-app.get("/delete-tables", async (req, res) => {
-  try {
-    await pool.query("SET FOREIGN_KEY_CHECKS = 0;");
-    await pool.query("DROP TABLE IF EXISTS FuelReceipts;");
-    await pool.query("DROP TABLE IF EXISTS FuelRequests;");
-    await pool.query("DROP TABLE IF EXISTS AppUsers;");
-    await pool.query("SET FOREIGN_KEY_CHECKS = 1;");
-    res.send("🗑️ All tables deleted successfully!");
-  } catch (err) {
-    res.status(500).send("ERROR deleting tables: " + err.message);
-  }
+  res.json({ message: "🚀 Fuel Management API is running successfully!" });
 });
 
 // =============================
@@ -220,11 +109,44 @@ app.post('/api/login', async (req, res) => {
       success: true,
       userId: user.UserID,
       username: user.Username,
+      email: user.Email,
       role: user.Role
     });
 
   } catch (err) {
     res.status(500).json({ success: false, message: "Login error" });
+  }
+});
+
+// =============================
+// GET USER PROFILE
+// =============================
+app.get('/api/get-user/:id', async (req, res) => {
+  const userId = req.params.id;
+
+  try {
+    const [rows] = await pool.query(
+      "SELECT UserID, Username, Email, Role FROM AppUsers WHERE UserID = ?",
+      [userId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    res.json({
+      success: true,
+      data: rows[0]
+    });
+
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: "Error: " + err.message
+    });
   }
 });
 
@@ -243,6 +165,7 @@ app.post('/api/fuel-entry', upload.single('receipt'), async (req, res) => {
 
     const requestId = result.insertId;
 
+    // SAVE RECEIPT
     if (req.file) {
       await pool.query(`
         INSERT INTO FuelReceipts (RequestID, UserID, FilePath, FileType)
@@ -254,6 +177,63 @@ app.post('/api/fuel-entry', upload.single('receipt'), async (req, res) => {
 
   } catch (err) {
     res.status(500).json({ success: false, message: "Error: " + err.message });
+  }
+});
+
+// =============================
+// DRIVER — GET ALL OWN REQUESTS
+// =============================
+app.get('/api/driver/requests/:userId', async (req, res) => {
+  const userId = req.params.userId;
+
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        fr.*,
+        (SELECT FilePath FROM FuelReceipts WHERE RequestID = fr.RequestID LIMIT 1) AS ReceiptUrl
+      FROM FuelRequests fr
+      WHERE fr.UserID = ?
+      ORDER BY fr.RequestID DESC
+    `, [userId]);
+
+    res.json({
+      success: true,
+      data: rows
+    });
+
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
+});
+
+// =============================
+// MANAGER — GET ALL FUEL REQUESTS
+// =============================
+app.get('/api/manager/requests', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        fr.*, 
+        u.Username,
+        (SELECT FilePath FROM FuelReceipts WHERE RequestID = fr.RequestID LIMIT 1) AS ReceiptUrl
+      FROM FuelRequests fr
+      LEFT JOIN AppUsers u ON fr.UserID = u.UserID
+      ORDER BY fr.RequestID DESC
+    `);
+
+    res.json({
+      success: true,
+      data: rows
+    });
+
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: "Error: " + err.message
+    });
   }
 });
 
