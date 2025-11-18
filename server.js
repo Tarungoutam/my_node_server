@@ -217,10 +217,39 @@ app.get('/api/manager/requests', async (req, res) => {
     const [rows] = await pool.query(`
       SELECT 
         fr.*, 
-        u.Username,
+        u.Username AS driverName,
         (SELECT FilePath FROM FuelReceipts WHERE RequestID = fr.RequestID LIMIT 1) AS ReceiptUrl
       FROM FuelRequests fr
       LEFT JOIN AppUsers u ON fr.UserID = u.UserID
+      ORDER BY fr.RequestID DESC
+    `);
+
+    res.json({
+      success: true,
+      data: rows
+    });
+
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: "Error: " + err.message
+    });
+  }
+});
+
+// =============================
+// MANAGER — GET ONLY PENDING REQUESTS
+// =============================
+app.get('/api/manager/pending', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        fr.*, 
+        u.Username AS driverName,
+        (SELECT FilePath FROM FuelReceipts WHERE RequestID = fr.RequestID LIMIT 1) AS ReceiptUrl
+      FROM FuelRequests fr
+      LEFT JOIN AppUsers u ON fr.UserID = u.UserID
+      WHERE fr.Status = 'Pending'
       ORDER BY fr.RequestID DESC
     `);
 
