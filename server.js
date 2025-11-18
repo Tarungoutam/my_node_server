@@ -210,7 +210,7 @@ app.get('/api/driver/requests/:userId', async (req, res) => {
 });
 
 // =============================
-// MANAGER — GET ALL FUEL REQUESTS
+// MANAGER — GET ALL REQUESTS
 // =============================
 app.get('/api/manager/requests', async (req, res) => {
   try {
@@ -227,6 +227,35 @@ app.get('/api/manager/requests', async (req, res) => {
     res.json({
       success: true,
       data: rows
+    });
+
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: "Error: " + err.message
+    });
+  }
+});
+
+// =============================
+// MANAGER — UPDATE REQUEST STATUS
+// =============================
+app.post('/api/manager/update-status', async (req, res) => {
+  try {
+    const { requestId, status } = req.body;
+
+    if (!requestId || !status) {
+      return res.json({ success: false, message: "Missing requestId or status" });
+    }
+
+    await pool.query(
+      "UPDATE FuelRequests SET Status = ? WHERE RequestID = ?",
+      [status, requestId]
+    );
+
+    res.json({
+      success: true,
+      message: "Status updated successfully"
     });
 
   } catch (err) {
