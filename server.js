@@ -1,35 +1,32 @@
 // =============================
-// FUEL MANAGEMENT BACKEND (MYSQL VERSION)
+// FUEL MANAGEMENT BACKEND (FINAL FRONTEND-MATCHED VERSION)
 // =============================
-const express = require('express');
-const mysql = require('mysql2/promise');
-const bcrypt = require('bcrypt');
-const cors = require('cors');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+const express = require("express");
+const mysql = require("mysql2/promise");
+const bcrypt = require("bcrypt");
+const cors = require("cors");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// MIDDLEWARE
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // =============================
-// UPLOAD DIRECTORY
+// UPLOADS FOLDER
 // =============================
-const uploadDir = path.join(__dirname, 'uploads');
+const uploadDir = path.join(__dirname, "uploads");
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
-app.use('/uploads', express.static(uploadDir));
+app.use("/uploads", express.static(uploadDir));
 
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadDir),
-  filename: (req, file, cb) => {
-    const unique = `receipt_${Date.now()}${path.extname(file.originalname)}`;
-    cb(null, unique);
-  }
+  destination: (_, __, cb) => cb(null, uploadDir),
+  filename: (_, file, cb) =>
+    cb(null, `receipt_${Date.now()}${path.extname(file.originalname)}`),
 });
 const upload = multer({ storage });
 
@@ -42,24 +39,26 @@ const pool = mysql.createPool({
   password: process.env.MYSQLPASSWORD,
   database: process.env.MYSQLDATABASE,
   port: process.env.MYSQLPORT,
-  connectionLimit: 10
+  connectionLimit: 10,
 });
 
 // =============================
-// ROOT ROUTE
+// ROOT
 // =============================
-app.get("/", (req, res) => {
-  res.json({ message: "🚀 Fuel Management API is running successfully!" });
-});
+app.get("/", (_, res) =>
+  res.json({ message: "🚀 Fuel Management API is running successfully!" })
+);
 
 // =============================
-// REGISTER USER
+// REGISTER
 // =============================
-app.post('/api/register', async (req, res) => {
+app.post("/api/register", async (req, res) => {
   const { username, email, password, role } = req.body;
 
   if (!username || !email || !password || !role)
-    return res.status(400).json({ success: false, message: "All fields required" });
+    return res
+      .status(400)
+      .json({ success: false, message: "All fields required" });
 
   try {
     const [exists] = await pool.query(
@@ -68,7 +67,9 @@ app.post('/api/register', async (req, res) => {
     );
 
     if (exists.length > 0)
-      return res.status(409).json({ success: false, message: "User already exists" });
+      return res
+        .status(409)
+        .json({ success: false, message: "User already exists" });
 
     const hash = await bcrypt.hash(password, 10);
 
@@ -78,16 +79,15 @@ app.post('/api/register', async (req, res) => {
     );
 
     res.json({ success: true, message: "Registration successful" });
-
   } catch (err) {
-    res.status(500).json({ success: false, message: "Error: " + err.message });
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
 // =============================
-// LOGIN USER
+// LOGIN
 // =============================
-app.post('/api/login', async (req, res) => {
+app.post("/api/login", async (req, res) => {
   const { username, password, role } = req.body;
 
   try {
@@ -97,143 +97,114 @@ app.post('/api/login', async (req, res) => {
     );
 
     if (rows.length === 0)
-      return res.status(401).json({ success: false, message: "User not found" });
+      return res
+        .status(401)
+        .json({ success: false, message: "User not found" });
 
     const user = rows[0];
-    const ok = await bcrypt.compare(password, user.PasswordHash);
+    const match = await bcrypt.compare(password, user.PasswordHash);
 
-    if (!ok)
-      return res.status(401).json({ success: false, message: "Wrong password" });
+    if (!match)
+      return res
+        .status(401)
+        .json({ success: false, message: "Wrong password" });
 
     res.json({
       success: true,
       userId: user.UserID,
       username: user.Username,
       email: user.Email,
-      role: user.Role
+      role: user.Role,
     });
-
-  } catch (err) {
-    res.status(500).json({ success: false, message: "Login error" });
-  }
-});
-
-// =============================
-// GET USER PROFILE
-// =============================
-app.get('/api/get-user/:id', async (req, res) => {
-  const userId = req.params.id;
-
-  try {
-    const [rows] = await pool.query(
-      "SELECT UserID, Username, Email, Role FROM AppUsers WHERE UserID = ?",
-      [userId]
-    );
-
-    if (rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found"
-      });
-    }
-
-    res.json({
-      success: true,
-      data: rows[0]
-    });
-
-  } catch (err) {
-    res.status(500).json({
-      success: false,
-      message: "Error: " + err.message
-    });
-  }
-});
-
-// =============================
-// FUEL ENTRY WITH RECEIPT
-// =============================
-app.post('/api/fuel-entry', upload.single('receipt'), async (req, res) => {
-  try {
-
-    const { userId, vehicleName, vehicleNumber, odo, liters, rate, total, station, notes } = req.body;
-
-    const [result] = await pool.query(`
-      INSERT INTO FuelRequests (UserID, VehicleName, VehicleNumber, Odo, Liters, Rate, Total, Station, Notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [userId, vehicleName, vehicleNumber, odo, liters, rate, total, station, notes]);
-
-    const requestId = result.insertId;
-
-    if (req.file) {
-      await pool.query(`
-        INSERT INTO FuelReceipts (RequestID, UserID, FilePath, FileType)
-        VALUES (?, ?, ?, ?)
-      `, [requestId, userId, `/uploads/${req.file.filename}`, req.file.mimetype]);
-    }
-
-    res.json({ success: true, message: "Fuel request submitted" });
-
-  } catch (err) {
-    res.status(500).json({ success: false, message: "Error: " + err.message });
-  }
-});
-
-// =============================
-// DRIVER — GET OWN REQUESTS
-// =============================
-app.get('/api/driver/requests/:userId', async (req, res) => {
-  const userId = req.params.userId;
-
-  try {
-    const [rows] = await pool.query(`
-      SELECT 
-        fr.*,
-        (SELECT FilePath FROM FuelReceipts WHERE RequestID = fr.RequestID LIMIT 1) AS ReceiptUrl
-      FROM FuelRequests fr
-      WHERE fr.UserID = ?
-      ORDER BY fr.RequestID DESC
-    `, [userId]);
-
-    res.json({ success: true, data: rows });
-
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
 // =============================
-// MANAGER — ALL REQUESTS
+// GET PROFILE (Flutter expects: data.Username, data.Email, data.Role)
 // =============================
-app.get('/api/manager/requests', async (req, res) => {
+app.get("/api/get-user/:id", async (req, res) => {
   try {
-    const [rows] = await pool.query(`
-      SELECT 
-        fr.*, 
-        u.Username AS driverName,
-        (SELECT FilePath FROM FuelReceipts WHERE RequestID = fr.RequestID LIMIT 1) AS ReceiptUrl
-      FROM FuelRequests fr
-      LEFT JOIN AppUsers u ON fr.UserID = u.UserID
-      ORDER BY fr.RequestID DESC
-    `);
+    const [rows] = await pool.query(
+      "SELECT UserID, Username, Email, Role FROM AppUsers WHERE UserID = ?",
+      [req.params.id]
+    );
 
-    res.json({ success: true, data: rows });
+    if (rows.length === 0)
+      return res.json({ success: false, message: "User not found" });
 
+    res.json({ success: true, data: rows[0] });
   } catch (err) {
-    res.status(500).json({ success: false, message: "Error: " + err.message });
+    res.json({ success: false, message: err.message });
   }
 });
 
 // =============================
-// MANAGER — PENDING REQUESTS
+// FUEL ENTRY (WITH RECEIPT)
 // =============================
-app.get('/api/manager/pending', async (req, res) => {
+app.post("/api/fuel-entry", upload.single("receipt"), async (req, res) => {
+  try {
+    const { userId, vehicleName, vehicleNumber, odo, liters, rate, total, station, notes } =
+      req.body;
+
+    const [result] = await pool.query(
+      `
+        INSERT INTO FuelRequests 
+        (UserID, VehicleName, VehicleNumber, Odo, Liters, Rate, Total, Station, Notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      [userId, vehicleName, vehicleNumber, odo, liters, rate, total, station, notes]
+    );
+
+    const requestId = result.insertId;
+
+    if (req.file) {
+      await pool.query(
+        `
+          INSERT INTO FuelReceipts (RequestID, UserID, FilePath, FileType)
+          VALUES (?, ?, ?, ?)
+        `,
+        [requestId, userId, `/uploads/${req.file.filename}`, req.file.mimetype]
+      );
+    }
+
+    res.json({ success: true, message: "Fuel request submitted" });
+  } catch (err) {
+    res.json({ success: false, message: err.message });
+  }
+});
+
+// =============================
+// DRIVER — GET OWN REQUESTS
+// =============================
+app.get("/api/driver/requests/:userId", async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `
+      SELECT fr.*,
+      (SELECT FilePath FROM FuelReceipts WHERE RequestID = fr.RequestID LIMIT 1) AS ReceiptUrl
+      FROM FuelRequests fr
+      WHERE fr.UserID = ?
+      ORDER BY fr.RequestID DESC
+    `,
+      [req.params.userId]
+    );
+
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    res.json({ success: false, message: err.message });
+  }
+});
+
+// =============================
+// MANAGER — PENDING
+// =============================
+app.get("/api/manager/pending", async (_, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT 
-        fr.*, 
-        u.Username AS driverName,
-        (SELECT FilePath FROM FuelReceipts WHERE RequestID = fr.RequestID LIMIT 1) AS ReceiptUrl
+      SELECT fr.*, u.Username AS DriverName,
+      (SELECT FilePath FROM FuelReceipts WHERE RequestID = fr.RequestID LIMIT 1) AS ReceiptUrl
       FROM FuelRequests fr
       LEFT JOIN AppUsers u ON fr.UserID = u.UserID
       WHERE fr.Status = 'Pending'
@@ -241,16 +212,35 @@ app.get('/api/manager/pending', async (req, res) => {
     `);
 
     res.json({ success: true, data: rows });
-
   } catch (err) {
-    res.status(500).json({ success: false, message: "Error: " + err.message });
+    res.json({ success: false, message: err.message });
+  }
+});
+
+// =============================
+// MANAGER — HISTORY (Approved + Rejected)
+// =============================
+app.get("/api/manager/history", async (_, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT fr.*, u.Username AS DriverName,
+      (SELECT FilePath FROM FuelReceipts WHERE RequestID = fr.RequestID LIMIT 1) AS ReceiptUrl
+      FROM FuelRequests fr
+      LEFT JOIN AppUsers u ON fr.UserID = u.UserID
+      WHERE fr.Status IN ('Approved','Rejected')
+      ORDER BY fr.RequestID DESC
+    `);
+
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    res.json({ success: false, message: err.message });
   }
 });
 
 // =============================
 // MANAGER — UPDATE STATUS
 // =============================
-app.post('/api/manager/update-status', async (req, res) => {
+app.post("/api/manager/update-status", async (req, res) => {
   try {
     const { requestId, status } = req.body;
 
@@ -260,22 +250,19 @@ app.post('/api/manager/update-status', async (req, res) => {
     );
 
     res.json({ success: true, message: "Status updated successfully" });
-
   } catch (err) {
-    res.status(500).json({ success: false, message: "Error: " + err.message });
+    res.json({ success: false, message: err.message });
   }
 });
 
 // =============================
-// FINANCE — APPROVED EXPENSES
+// FINANCE — EXPENSES (Approved Only)
 // =============================
-app.get('/api/finance/expenses', async (req, res) => {
+app.get("/api/finance/expenses", async (_, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT 
-        fr.*, 
-        u.Username AS driverName,
-        (SELECT FilePath FROM FuelReceipts WHERE RequestID = fr.RequestID LIMIT 1) AS ReceiptUrl
+      SELECT fr.*, u.Username AS DriverName,
+      (SELECT FilePath FROM FuelReceipts WHERE RequestID = fr.RequestID LIMIT 1) AS ReceiptUrl
       FROM FuelRequests fr
       LEFT JOIN AppUsers u ON fr.UserID = u.UserID
       WHERE fr.Status = 'Approved'
@@ -283,36 +270,33 @@ app.get('/api/finance/expenses', async (req, res) => {
     `);
 
     res.json({ success: true, data: rows });
-
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.json({ success: false, message: err.message });
   }
 });
 
 // =============================
 // FINANCE — SUMMARY
 // =============================
-app.get('/api/finance/summary', async (req, res) => {
+app.get("/api/finance/summary", async (_, res) => {
   try {
-    const [[summary]] = await pool.query(`
+    const [[sum]] = await pool.query(`
       SELECT 
-        COUNT(*) AS totalRequests,
-        SUM(Total) AS totalAmount,
-        SUM(CASE WHEN Status='Approved' THEN Total ELSE 0 END) AS approvedAmount,
-        SUM(CASE WHEN Status='Rejected' THEN Total ELSE 0 END) AS rejectedAmount
+        COUNT(*) AS TotalRequests,
+        SUM(Total) AS TotalAmount,
+        SUM(Liters) AS TotalLiters
       FROM FuelRequests
     `);
 
-    res.json({ success: true, data: summary });
-
+    res.json({ success: true, data: sum });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.json({ success: false, message: err.message });
   }
 });
 
 // =============================
 // START SERVER
 // =============================
-app.listen(PORT, () => {
-  console.log(`🚀 Server Running on PORT ${PORT}`);
-});
+app.listen(PORT, () =>
+  console.log(`🚀 Server Running on PORT ${PORT}`)
+);
