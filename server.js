@@ -53,7 +53,7 @@ app.get("/", (req, res) => {
 });
 
 // =============================
-// REGISTER
+// REGISTER USER
 // =============================
 app.post('/api/register', async (req, res) => {
   const { username, email, password, role } = req.body;
@@ -85,7 +85,7 @@ app.post('/api/register', async (req, res) => {
 });
 
 // =============================
-// LOGIN
+// LOGIN USER
 // =============================
 app.post('/api/login', async (req, res) => {
   const { username, password, role } = req.body;
@@ -165,7 +165,6 @@ app.post('/api/fuel-entry', upload.single('receipt'), async (req, res) => {
 
     const requestId = result.insertId;
 
-    // SAVE RECEIPT
     if (req.file) {
       await pool.query(`
         INSERT INTO FuelReceipts (RequestID, UserID, FilePath, FileType)
@@ -181,7 +180,7 @@ app.post('/api/fuel-entry', upload.single('receipt'), async (req, res) => {
 });
 
 // =============================
-// DRIVER — GET ALL OWN REQUESTS
+// DRIVER — GET OWN REQUESTS
 // =============================
 app.get('/api/driver/requests/:userId', async (req, res) => {
   const userId = req.params.userId;
@@ -196,21 +195,15 @@ app.get('/api/driver/requests/:userId', async (req, res) => {
       ORDER BY fr.RequestID DESC
     `, [userId]);
 
-    res.json({
-      success: true,
-      data: rows
-    });
+    res.json({ success: true, data: rows });
 
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      message: err.message
-    });
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
 // =============================
-// MANAGER — GET ALL REQUESTS
+// MANAGER — ALL REQUESTS
 // =============================
 app.get('/api/manager/requests', async (req, res) => {
   try {
@@ -224,21 +217,15 @@ app.get('/api/manager/requests', async (req, res) => {
       ORDER BY fr.RequestID DESC
     `);
 
-    res.json({
-      success: true,
-      data: rows
-    });
+    res.json({ success: true, data: rows });
 
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      message: "Error: " + err.message
-    });
+    res.status(500).json({ success: false, message: "Error: " + err.message });
   }
 });
 
 // =============================
-// MANAGER — GET ONLY PENDING REQUESTS
+// MANAGER — PENDING REQUESTS
 // =============================
 app.get('/api/manager/pending', async (req, res) => {
   try {
@@ -253,45 +240,73 @@ app.get('/api/manager/pending', async (req, res) => {
       ORDER BY fr.RequestID DESC
     `);
 
-    res.json({
-      success: true,
-      data: rows
-    });
+    res.json({ success: true, data: rows });
 
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      message: "Error: " + err.message
-    });
+    res.status(500).json({ success: false, message: "Error: " + err.message });
   }
 });
 
 // =============================
-// MANAGER — UPDATE REQUEST STATUS
+// MANAGER — UPDATE STATUS
 // =============================
 app.post('/api/manager/update-status', async (req, res) => {
   try {
     const { requestId, status } = req.body;
-
-    if (!requestId || !status) {
-      return res.json({ success: false, message: "Missing requestId or status" });
-    }
 
     await pool.query(
       "UPDATE FuelRequests SET Status = ? WHERE RequestID = ?",
       [status, requestId]
     );
 
-    res.json({
-      success: true,
-      message: "Status updated successfully"
-    });
+    res.json({ success: true, message: "Status updated successfully" });
 
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      message: "Error: " + err.message
-    });
+    res.status(500).json({ success: false, message: "Error: " + err.message });
+  }
+});
+
+// =============================
+// FINANCE — APPROVED EXPENSES
+// =============================
+app.get('/api/finance/expenses', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        fr.*, 
+        u.Username AS driverName,
+        (SELECT FilePath FROM FuelReceipts WHERE RequestID = fr.RequestID LIMIT 1) AS ReceiptUrl
+      FROM FuelRequests fr
+      LEFT JOIN AppUsers u ON fr.UserID = u.UserID
+      WHERE fr.Status = 'Approved'
+      ORDER BY fr.RequestID DESC
+    `);
+
+    res.json({ success: true, data: rows });
+
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// =============================
+// FINANCE — SUMMARY
+// =============================
+app.get('/api/finance/summary', async (req, res) => {
+  try {
+    const [[summary]] = await pool.query(`
+      SELECT 
+        COUNT(*) AS totalRequests,
+        SUM(Total) AS totalAmount,
+        SUM(CASE WHEN Status='Approved' THEN Total ELSE 0 END) AS approvedAmount,
+        SUM(CASE WHEN Status='Rejected' THEN Total ELSE 0 END) AS rejectedAmount
+      FROM FuelRequests
+    `);
+
+    res.json({ success: true, data: summary });
+
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
