@@ -1,5 +1,5 @@
 // =============================
-// FUEL MANAGEMENT BACKEND (FINAL FRONTEND-MATCHED VERSION)
+// FUEL MANAGEMENT BACKEND (FINAL + NOTIFICATION READY)
 // =============================
 const express = require("express");
 const mysql = require("mysql2/promise");
@@ -8,6 +8,9 @@ const cors = require("cors");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+
+// 🔥 FCM HELPER
+const sendNotification = require("./sendNotification");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -48,6 +51,27 @@ const pool = mysql.createPool({
 app.get("/", (_, res) =>
   res.json({ message: "🚀 Fuel Management API is running successfully!" })
 );
+
+// =============================
+// SAVE FCM TOKEN
+// =============================
+app.post("/api/save-token", async (req, res) => {
+  const { userId, token } = req.body;
+
+  if (!userId || !token)
+    return res.json({ success: false, message: "userId & token required" });
+
+  try {
+    await pool.query(
+      "UPDATE AppUsers SET FCMToken = ? WHERE UserID = ?",
+      [token, userId]
+    );
+
+    res.json({ success: true, message: "Token saved" });
+  } catch (err) {
+    res.json({ success: false, message: err.message });
+  }
+});
 
 // =============================
 // REGISTER
@@ -115,6 +139,7 @@ app.post("/api/login", async (req, res) => {
       username: user.Username,
       email: user.Email,
       role: user.Role,
+      token: user.FCMToken,
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -122,12 +147,12 @@ app.post("/api/login", async (req, res) => {
 });
 
 // =============================
-// GET PROFILE (Flutter expects: data.Username, data.Email, data.Role)
+// GET PROFILE
 // =============================
 app.get("/api/get-user/:id", async (req, res) => {
   try {
     const [rows] = await pool.query(
-      "SELECT UserID, Username, Email, Role FROM AppUsers WHERE UserID = ?",
+      "SELECT UserID, Username, Email, Role, FCMToken FROM AppUsers WHERE UserID = ?",
       [req.params.id]
     );
 
@@ -141,7 +166,7 @@ app.get("/api/get-user/:id", async (req, res) => {
 });
 
 // =============================
-// FUEL ENTRY (WITH RECEIPT)
+// FUEL ENTRY (Driver → Manager Notification)
 // =============================
 app.post("/api/fuel-entry", upload.single("receipt"), async (req, res) => {
   try {
@@ -169,6 +194,30 @@ app.post("/api/fuel-entry", upload.single("receipt"), async (req, res) => {
       );
     }
 
+    // 🔥 SEND NOTIFICATION TO MANAGER + save in DB
+    const [managers] = await pool.query(
+      "SELECT UserID, FCMToken FROM AppUsers WHERE Role = 'Manager'"
+    );
+
+    for (const manager of managers) {
+      // Save notification in DB
+      await pool.query(
+        `INSERT INTO Notifications (UserID, Title, Message, IsRead)
+         VALUES (?, ?, ?, 0)`,
+        [manager.UserID, "New Fuel Request", "A driver submitted a fuel request"]
+      );
+
+      // Send FCM push
+      if (manager.FCMToken) {
+        sendNotification(
+          manager.FCMToken,
+          "New Fuel Request",
+          "A driver submitted a fuel request",
+          { requestId: String(requestId) }
+        );
+      }
+    }
+
     res.json({ success: true, message: "Fuel request submitted" });
   } catch (err) {
     res.json({ success: false, message: err.message });
@@ -176,69 +225,7 @@ app.post("/api/fuel-entry", upload.single("receipt"), async (req, res) => {
 });
 
 // =============================
-// DRIVER — GET OWN REQUESTS
-// =============================
-app.get("/api/driver/requests/:userId", async (req, res) => {
-  try {
-    const [rows] = await pool.query(
-      `
-      SELECT fr.*,
-      (SELECT FilePath FROM FuelReceipts WHERE RequestID = fr.RequestID LIMIT 1) AS ReceiptUrl
-      FROM FuelRequests fr
-      WHERE fr.UserID = ?
-      ORDER BY fr.RequestID DESC
-    `,
-      [req.params.userId]
-    );
-
-    res.json({ success: true, data: rows });
-  } catch (err) {
-    res.json({ success: false, message: err.message });
-  }
-});
-
-// =============================
-// MANAGER — PENDING
-// =============================
-app.get("/api/manager/pending", async (_, res) => {
-  try {
-    const [rows] = await pool.query(`
-      SELECT fr.*, u.Username AS DriverName,
-      (SELECT FilePath FROM FuelReceipts WHERE RequestID = fr.RequestID LIMIT 1) AS ReceiptUrl
-      FROM FuelRequests fr
-      LEFT JOIN AppUsers u ON fr.UserID = u.UserID
-      WHERE fr.Status = 'Pending'
-      ORDER BY fr.RequestID DESC
-    `);
-
-    res.json({ success: true, data: rows });
-  } catch (err) {
-    res.json({ success: false, message: err.message });
-  }
-});
-
-// =============================
-// MANAGER — HISTORY (Approved + Rejected)
-// =============================
-app.get("/api/manager/history", async (_, res) => {
-  try {
-    const [rows] = await pool.query(`
-      SELECT fr.*, u.Username AS DriverName,
-      (SELECT FilePath FROM FuelReceipts WHERE RequestID = fr.RequestID LIMIT 1) AS ReceiptUrl
-      FROM FuelRequests fr
-      LEFT JOIN AppUsers u ON fr.UserID = u.UserID
-      WHERE fr.Status IN ('Approved','Rejected')
-      ORDER BY fr.RequestID DESC
-    `);
-
-    res.json({ success: true, data: rows });
-  } catch (err) {
-    res.json({ success: false, message: err.message });
-  }
-});
-
-// =============================
-// MANAGER — UPDATE STATUS
+// MANAGER — UPDATE STATUS (Manager → Driver Notification)
 // =============================
 app.post("/api/manager/update-status", async (req, res) => {
   try {
@@ -249,6 +236,40 @@ app.post("/api/manager/update-status", async (req, res) => {
       [status, requestId]
     );
 
+    // Get driver details
+    const [[driver]] = await pool.query(
+      `
+      SELECT u.UserID, u.FCMToken 
+      FROM FuelRequests fr
+      JOIN AppUsers u ON fr.UserID = u.UserID
+      WHERE fr.RequestID = ?
+      `,
+      [requestId]
+    );
+
+    if (driver) {
+      // Save notification in DB
+      await pool.query(
+        `INSERT INTO Notifications (UserID, Title, Message, IsRead)
+         VALUES (?, ?, ?, 0)`,
+        [
+          driver.UserID,
+          `Request ${status}`,
+          `Your fuel request has been ${status}.`,
+        ]
+      );
+
+      // Send FCM push
+      if (driver.FCMToken) {
+        sendNotification(
+          driver.FCMToken,
+          `Request ${status}`,
+          `Your fuel request has been ${status}.`,
+          { requestId: String(requestId) }
+        );
+      }
+    }
+
     res.json({ success: true, message: "Status updated successfully" });
   } catch (err) {
     res.json({ success: false, message: err.message });
@@ -256,7 +277,7 @@ app.post("/api/manager/update-status", async (req, res) => {
 });
 
 // =============================
-// FINANCE — EXPENSES (Approved Only)
+// FINANCE — EXPENSES & SUMMARY
 // =============================
 app.get("/api/finance/expenses", async (_, res) => {
   try {
@@ -275,9 +296,6 @@ app.get("/api/finance/expenses", async (_, res) => {
   }
 });
 
-// =============================
-// FINANCE — SUMMARY
-// =============================
 app.get("/api/finance/summary", async (_, res) => {
   try {
     const [[sum]] = await pool.query(`
