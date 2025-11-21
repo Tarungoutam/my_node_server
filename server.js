@@ -194,20 +194,18 @@ app.post("/api/fuel-entry", upload.single("receipt"), async (req, res) => {
       );
     }
 
-    // 🔥 SEND NOTIFICATION TO MANAGER + save in DB
+    // NOTIFY MANAGERS
     const [managers] = await pool.query(
       "SELECT UserID, FCMToken FROM AppUsers WHERE Role = 'Manager'"
     );
 
     for (const manager of managers) {
-      // Save notification in DB
       await pool.query(
         `INSERT INTO Notifications (UserID, Title, Message, IsRead)
-         VALUES (?, ?, ?, 0)`,
+        VALUES (?, ?, ?, 0)`,
         [manager.UserID, "New Fuel Request", "A driver submitted a fuel request"]
       );
 
-      // Send FCM push
       if (manager.FCMToken) {
         sendNotification(
           manager.FCMToken,
@@ -225,7 +223,71 @@ app.post("/api/fuel-entry", upload.single("receipt"), async (req, res) => {
 });
 
 // =============================
-// MANAGER — UPDATE STATUS (Manager → Driver Notification)
+// DRIVER — GET HIS OWN REQUESTS
+// =============================
+app.get("/api/driver/requests/:userId", async (req, res) => {
+  try {
+    const userId = req.params.userId;
+
+    const [rows] = await pool.query(`
+      SELECT fr.*, 
+        (SELECT FilePath FROM FuelReceipts 
+         WHERE RequestID = fr.RequestID LIMIT 1) AS ReceiptUrl
+      FROM FuelRequests fr
+      WHERE fr.UserID = ?
+      ORDER BY fr.RequestID DESC
+    `, [userId]);
+
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    res.json({ success: false, message: err.message });
+  }
+});
+
+// =============================
+// MANAGER — PENDING REQUESTS
+// =============================
+app.get("/api/manager/pending", async (_, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT fr.*, u.Username AS DriverName,
+      (SELECT FilePath FROM FuelReceipts 
+       WHERE RequestID = fr.RequestID LIMIT 1) AS ReceiptUrl
+      FROM FuelRequests fr
+      LEFT JOIN AppUsers u ON fr.UserID = u.UserID
+      WHERE fr.Status = 'Pending'
+      ORDER BY fr.RequestID DESC
+    `);
+
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    res.json({ success: false, message: err.message });
+  }
+});
+
+// =============================
+// MANAGER — HISTORY
+// =============================
+app.get("/api/manager/history", async (_, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT fr.*, u.Username AS DriverName,
+      (SELECT FilePath FROM FuelReceipts 
+       WHERE RequestID = fr.RequestID LIMIT 1) AS ReceiptUrl
+      FROM FuelRequests fr
+      LEFT JOIN AppUsers u ON fr.UserID = u.UserID
+      WHERE fr.Status IN ('Approved', 'Rejected')
+      ORDER BY fr.RequestID DESC
+    `);
+
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    res.json({ success: false, message: err.message });
+  }
+});
+
+// =============================
+// MANAGER — UPDATE STATUS
 // =============================
 app.post("/api/manager/update-status", async (req, res) => {
   try {
@@ -236,7 +298,6 @@ app.post("/api/manager/update-status", async (req, res) => {
       [status, requestId]
     );
 
-    // Get driver details
     const [[driver]] = await pool.query(
       `
       SELECT u.UserID, u.FCMToken 
@@ -248,7 +309,6 @@ app.post("/api/manager/update-status", async (req, res) => {
     );
 
     if (driver) {
-      // Save notification in DB
       await pool.query(
         `INSERT INTO Notifications (UserID, Title, Message, IsRead)
          VALUES (?, ?, ?, 0)`,
@@ -259,7 +319,6 @@ app.post("/api/manager/update-status", async (req, res) => {
         ]
       );
 
-      // Send FCM push
       if (driver.FCMToken) {
         sendNotification(
           driver.FCMToken,
@@ -277,7 +336,7 @@ app.post("/api/manager/update-status", async (req, res) => {
 });
 
 // =============================
-// FINANCE — EXPENSES & SUMMARY
+// FINANCE — EXPENSES
 // =============================
 app.get("/api/finance/expenses", async (_, res) => {
   try {
@@ -296,6 +355,9 @@ app.get("/api/finance/expenses", async (_, res) => {
   }
 });
 
+// =============================
+// FINANCE — SUMMARY
+// =============================
 app.get("/api/finance/summary", async (_, res) => {
   try {
     const [[sum]] = await pool.query(`
