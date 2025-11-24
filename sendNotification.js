@@ -1,6 +1,7 @@
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+const fetch = (...args) =>
+  import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
-const FCM_SERVER_KEY = "YOUR_FCM_SERVER_KEY_HERE";  // IMPORTANT
+const FCM_SERVER_KEY = "AIzaSyBEUCg6yrVRAnI-zwrKSjHmiuJ8YCM5yAQ"; // <-- IMPORTANT
 
 async function sendNotification(token, title, body, data = {}) {
   try {
