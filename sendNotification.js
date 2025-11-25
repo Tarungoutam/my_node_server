@@ -1,7 +1,8 @@
+// sendNotification.js
 const fetch = (...args) =>
   import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
-const FCM_SERVER_KEY = "AIzaSyBEUCg6yrVRAnI-zwrKSjHmiuJ8YCM5yAQ"; // <-- IMPORTANT
+const FCM_SERVER_KEY = "AIzaSyBEUCg6yrVRAnI-zwrKSjHmiuJ8YCM5yAQ"; // <-- your server key
 
 async function sendNotification(token, title, body, data = {}) {
   try {
@@ -13,17 +14,14 @@ async function sendNotification(token, title, body, data = {}) {
       },
       body: JSON.stringify({
         to: token,
-        notification: {
-          title,
-          body,
-        },
+        notification: { title, body },
         data,
       }),
     });
 
-    console.log("FCM Response:", await response.text());
+    console.log("🔔 FCM Response:", await response.text());
   } catch (err) {
-    console.error("FCM Error:", err.message);
+    console.error("❌ FCM Error:", err.message);
   }
 }
 
